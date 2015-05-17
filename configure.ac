@@ -57,6 +57,15 @@ AC_CANONICAL_HOST
 AC_DEFINE_UNQUOTED([OS_TYPE], "$host_os",
                    [Define to be the name of the operating system.])
 
+LT_PREREQ([2.2])
+LT_INIT([dlopen])
+
+dnl Keep version info in configure.ac
+dnl see also "Updating library version information" at
+dnl   http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
+AC_SUBST([LIBWGET_SO_VERSION], [0:0:0])
+AC_SUBST([LIBWGET_API_VERSION], [0.1])
+
 
 dnl
 dnl Process External Libraries
@@ -69,11 +78,6 @@ AC_ARG_WITH([libpsl],
 dnl SSL: Configure SSL backend to use
 AC_ARG_WITH([ssl],
   [AS_HELP_STRING([--with-ssl={gnutls,openssl}], [specify SSL backend. GNU TLS is the default.])])
-
-
-dnl Zlib: Configure use iof zlib for compression
-AC_ARG_WITH([zlib],
-  [AS_HELP_STRING([--without-zlib], [disable zlib.])])
 
 
 dnl
@@ -228,9 +232,13 @@ dnl
 dnl Checks for system header files that might be missing.
 dnl
 AC_HEADER_STDBOOL
-AC_CHECK_HEADERS(unistd.h sys/time.h)
+AC_CHECK_HEADERS(unistd.h sys/time.h libintl.h)
 AC_CHECK_HEADERS(termios.h sys/ioctl.h sys/select.h utime.h sys/utime.h)
 AC_CHECK_HEADERS(stdint.h inttypes.h pwd.h wchar.h)
+AC_CHECK_HEADERS([\
+ fcntl.h inttypes.h libintl.h locale.h netdb.h netinet/in.h stddef.h stdlib.h string.h\
+ strings.h sys/socket.h sys/time.h unistd.h crypt.h poll.h sys/poll.h idna.h idn2.h stringprep.h\
+ langinfo.h unicase.h fnmatch.h glob.h])
 
 AC_CHECK_DECLS(h_errno,,,[#include <netdb.h>])
 
@@ -266,9 +274,20 @@ dnl Checks for library functions.
 dnl
 AC_FUNC_MMAP
 AC_FUNC_FSEEKO
+AC_FUNC_ALLOCA
+AC_FUNC_FORK
+#AC_FUNC_MALLOC
+#AC_FUNC_REALLOC
+AC_FUNC_FNMATCH
 AC_CHECK_FUNCS(strptime timegm vsnprintf vasprintf drand48 pathconf)
 AC_CHECK_FUNCS(strtoll usleep ftello sigblock sigsetjmp memrchr wcwidth mbtowc)
 AC_CHECK_FUNCS(sleep symlink utime strlcpy random)
+AC_CHECK_FUNCS([\
+ clock_gettime dprintf dup2 futimens gettimeofday localtime_r memchr\
+ memmove memset mkdir munmap select setlocale socket strcasecmp\
+ strchr strdup strerror strncasecmp strndup strrchr strstr strlcpy \
+ vasprintf nanosleep usleep iconv nl_langinfo futimens glob pwrite \
+ qsort_r])
 
 if test x"$ENABLE_OPIE" = xyes; then
   AC_LIBOBJ([ftp-opie])
@@ -322,16 +341,44 @@ AS_IF([test "x$with_libpsl" != xno], [
   ])
 ])
 
-AS_IF([test x"$with_zlib" != xno], [
-  with_zlib=yes
+dnl Zlib: Configure use of zlib for compression
+AC_ARG_WITH(zlib, AS_HELP_STRING([--without-zlib], [disable gzip compression support]), with_zlib=$withval, with_zlib=yes)
+AS_IF([test "x$with_zlib" != xno], [
   PKG_CHECK_MODULES([ZLIB], zlib, [
+    with_zlib=yes
     LIBS="$ZLIB_LIBS $LIBS"
     CFLAGS="$ZLIB_CFLAGS $CFLAGS"
-    AC_DEFINE([HAVE_LIBZ], [1], [Define if using zlib.])
+    AC_DEFINE([HAVE_LIBZ], [1], [Use zlib])
   ], [
-    AC_CHECK_LIB(z, compress)
+    AC_SEARCH_LIBS(deflate, z,
+      [with_zlib=yes; AC_DEFINE([HAVE_LIBZ], [1], [Use zlib])],
+      [with_zlib=no;  AC_MSG_WARN(*** ZLIB was not found. You will not be able to use gzip (de)compression)])
   ])
 ])
+AM_CONDITIONAL([WITH_ZLIB], [test "x$with_zlib" = xyes])
+
+AC_ARG_WITH(bz2, AS_HELP_STRING([--with-bzip2], [enable bzip2 compression support]), with_bzip2=$withval, with_bzip2=no)
+AS_IF([test "x$with_bzip2" != xno], [
+  AC_SEARCH_LIBS(BZ2_bzDecompress, bz2,
+    [with_bzip2=yes; AC_DEFINE([HAVE_LIBBZ2], [1], [Use libbz2])],
+    [with_bzip2=no;  AC_MSG_WARN(*** libbz2 was not found. You will not be able to use BZIP2 (de)compression)])
+])
+AM_CONDITIONAL([HAVE_LIBBZ2], [test "x$with_bzip2" = xyes])
+
+AC_ARG_WITH(lzma, AS_HELP_STRING([--with-lzma], [enable LZMA compression support]), with_lzma=$withval, with_lzma=no)
+AS_IF([test "x$with_lzma" != xno], [
+  PKG_CHECK_MODULES([LZMA], liblzma, [
+    with_lzma=yes
+    LIBS="$LZMA_LIBS $LIBS"
+    CFLAGS="$LZMA_CFLAGS $CFLAGS"
+    AC_DEFINE([HAVE_LIBLZMA], [1], [Use liblzma])
+  ], [
+    AC_SEARCH_LIBS(lzma_code, lzma,
+      [with_lzma=yes; AC_DEFINE([HAVE_LIBLZMA], [1], [Use liblzma])],
+      [with_lzma=no;  AC_MSG_WARN(*** liblzma was not found. You will not be able to use LZMA (de)compression)])
+  ])
+])
+AM_CONDITIONAL([HAVE_LIBLZMA], [test "x$with_lzma" = xyes])
 
 AS_IF([test x"$with_ssl" = xopenssl], [
   if [test x"$with_libssl_prefix" = x]; then
@@ -711,6 +758,11 @@ AS_IF([test "X$enable_pcre" != "Xno"],[
   ])
 ])
 
+AC_SEARCH_LIBS(pthread_create, pthread, [
+  # for Solaris also see http://docs.oracle.com/cd/E18752_01/html/816-5137/compile-94611.html
+  AC_DEFINE([HAVE_LIBPTHREAD], [1], [Use pthreads])
+  CFLAGS="-pthread $CFLAGS"
+])
 
 dnl Needed by src/Makefile.am
 AM_CONDITIONAL([IRI_IS_ENABLED], [test "X$iri" != "Xno"])
@@ -720,6 +772,9 @@ dnl
 dnl Create output
 dnl
 AC_CONFIG_FILES([Makefile src/Makefile doc/Makefile util/Makefile
+                 include/Makefile
+                 libwget/Makefile
+                 src2/Makefile
                  po/Makefile.in tests/Makefile
                  lib/Makefile testenv/Makefile])
 AC_CONFIG_HEADERS([src/config.h])
@@ -735,7 +790,9 @@ AC_MSG_NOTICE([Summary of build options:
   LDFlags:           $LDFLAGS
   Libs:              $LIBS
   SSL:               $with_ssl
-  Zlib:              $with_zlib
+  GZIP compression:  $with_zlib
+  BZIP2 compression: $with_bzip2
+  LZMA compression:  $with_lzma
   PSL:               $with_libpsl
   Digest:            $ENABLE_DIGEST
   NTLM:              $ENABLE_NTLM

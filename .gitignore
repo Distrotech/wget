@@ -19,6 +19,9 @@
 po/*.gmo*
 po/*.po*
 src/*.o
+src2/*.o
+libwget/*.o
+libwget/*.lo
 tests/*.log
 tests/*.trs
 testenv/*.log
