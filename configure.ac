@@ -484,6 +484,9 @@ AS_IF([test x"$with_ssl" = xopenssl], [
     fi
 
     AC_CHECK_FUNCS(gnutls_priority_set_direct)
+    AS_IF([test "x$ssl_found" = xyes], [
+      AC_CHECK_HEADERS([gnutls/ocsp.h])
+    ])
   ]) # endif: --with-ssl != no?
 ]) # endif: --with-ssl == openssl?
 
