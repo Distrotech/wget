@@ -236,8 +236,8 @@ AC_CHECK_HEADERS(unistd.h sys/time.h libintl.h)
 AC_CHECK_HEADERS(termios.h sys/ioctl.h sys/select.h utime.h sys/utime.h)
 AC_CHECK_HEADERS(stdint.h inttypes.h pwd.h wchar.h)
 AC_CHECK_HEADERS([\
- fcntl.h inttypes.h libintl.h locale.h netdb.h netinet/in.h stddef.h stdlib.h string.h\
- strings.h sys/socket.h sys/time.h unistd.h crypt.h poll.h sys/poll.h idna.h idn2.h stringprep.h\
+ fcntl.h locale.h netdb.h netinet/in.h stddef.h stdlib.h string.h\
+ strings.h sys/socket.h unistd.h crypt.h poll.h sys/poll.h idna.h idn2.h stringprep.h\
  langinfo.h unicase.h fnmatch.h glob.h])
 
 AC_CHECK_DECLS(h_errno,,,[#include <netdb.h>])
@@ -650,9 +650,6 @@ AC_ARG_ENABLE(iri,
   ]
 )
 
-AC_ARG_WITH(libidn, AC_HELP_STRING([--with-libidn=[DIR]],
-                                   [Support IDN/IRIs (needs GNU Libidn)]),
-                                   libidn=$withval, libidn="")
 AS_IF([test "X$iri" != "Xno"],[
   AM_ICONV
 
@@ -670,6 +667,9 @@ AS_IF([test "X$iri" != "Xno"],[
   LIBICONV=
 ])
 
+AC_ARG_WITH(libidn, AC_HELP_STRING([--with-libidn=[DIR]],
+                                   [Support IDN/IRIs (needs GNU Libidn)]),
+                                   libidn=$withval, libidn="")
 if test "X$iri" != "Xno"; then
   if test "$libidn" != ""; then
     LDFLAGS="${LDFLAGS} -L$libidn/lib"
@@ -698,6 +698,52 @@ if test "X$iri" != "Xno"; then
     AC_MSG_WARN([Libidn not found])
   fi
 fi
+
+
+dnl
+dnl Wget2: Check for libidn/libidn2
+dnl
+
+AC_ARG_WITH(libidn2, AS_HELP_STRING([--without-libidn2], [disable IDN2 support]), with_libidn2=$withval, with_libidn2=yes)
+AS_IF([test "x$with_libidn2" != xno], [
+  AC_LIB_LINKFLAGS([idn2])
+  AS_IF([test "x$LIBIDN2" != "x"], [
+    with_libidn2=yes;
+    AC_DEFINE([WITH_LIBIDN2], [1], [Use libidn2]) IDNA_INFO="IDNA 2008 (libidn2)"
+    AC_LIB_LINKFLAGS([unistring])
+    AS_IF([test "x$LIBUNISTRING" != "x"], [
+      with_libunistring=yes;
+      AC_DEFINE([WITH_LIBUNISTRING], [1], [Use libunistring]) IDNA_INFO="IDNA 2008 (libidn2+libunistring)"
+    ], [
+      with_libunistring=no;
+      AC_MSG_WARN(*** LIBUNISTRING was not found. You will not be able to use IDN2008 on uppercase domains)
+    ])
+  ], [
+    with_libidn2=no;
+    AC_MSG_WARN(*** LIBIDN2 was not found. You will not be able to use IDN2008 support)
+  ])
+])
+AM_CONDITIONAL([WITH_LIBUNISTRING], [test "x$with_libunistring" = xyes])
+AM_CONDITIONAL([WITH_LIBIDN2], [test "x$with_libidn2" = xyes])
+
+AS_IF([test "x$with_libidn2" != xyes], [
+  AC_ARG_WITH(libidn, AS_HELP_STRING([--without-libidn], [disable IDN support]), with_libidn=$withval, with_libidn=yes)
+  AS_IF([test "x$with_libidn" != xno], [
+    PKG_CHECK_MODULES([LIBIDN], libidn, [
+      with_libidn=yes
+      LIBS="$LIBIDN_LIBS $LIBS"
+      CFLAGS="$LIBIDN_CFLAGS $CFLAGS"
+      AC_DEFINE([WITH_LIBIDN], [1], [Use libidn])
+      IDNA_INFO="IDNA 2003 (libidn)"
+    ], [
+      AC_SEARCH_LIBS(idna_to_ascii_8z, idn,
+        [with_libidn=yes; AC_DEFINE([WITH_LIBIDN], [1], [Use libidn]) IDNA_INFO="IDNA 2003 (libidn)"],
+        [with_libidn=no; AC_MSG_WARN(*** LIBIDN was not found. You will not be able to use IDN support)])
+    ])
+  ])
+])
+AM_CONDITIONAL([WITH_LIBIDN], [test "x$with_libidn" = xyes])
+
 
 dnl
 dnl Check for UUID
@@ -761,11 +807,7 @@ AS_IF([test "X$enable_pcre" != "Xno"],[
   ])
 ])
 
-AC_SEARCH_LIBS(pthread_create, pthread, [
-  # for Solaris also see http://docs.oracle.com/cd/E18752_01/html/816-5137/compile-94611.html
-  AC_DEFINE([HAVE_LIBPTHREAD], [1], [Use pthreads])
-  CFLAGS="-pthread $CFLAGS"
-])
+AC_LIB_HAVE_LINKFLAGS([pthread])
 
 dnl Needed by src/Makefile.am
 AM_CONDITIONAL([IRI_IS_ENABLED], [test "X$iri" != "Xno"])
@@ -792,10 +834,12 @@ AC_MSG_NOTICE([Summary of build options:
   CFlags:            $CFLAGS $CPPFLAGS
   LDFlags:           $LDFLAGS
   Libs:              $LIBS
+  Wget2 Libs:        $LIBIDN2 $LIBUNISTRING $LIBPTHREAD
   SSL:               $with_ssl
   GZIP compression:  $with_zlib
   BZIP2 compression: $with_bzip2
   LZMA compression:  $with_lzma
+  IDNA support:      $IDNA_INFO
   PSL:               $with_libpsl
   Digest:            $ENABLE_DIGEST
   NTLM:              $ENABLE_NTLM
